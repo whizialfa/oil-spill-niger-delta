@@ -8,7 +8,7 @@ description: >-
 
 # Oil-spill Niger Delta
 
-Original analysis. Not a replica of Bruno. Not part of `15-min-cities-nigeria`.
+Original analysis. Not a replica of Bruno. Not part of `15-min-cities-nigeria`. Home folder: `Documents/Portfolio/Projects/oil-spill-niger-delta`, not `Paper replicas`.
 
 ## Claim
 
@@ -30,7 +30,7 @@ Per incident: look-alike-filtered dark-spot **slick area (km²)** plus **point-i
 
 ## Do not
 
-- Dump code into the 15-minute cities repo
+- Dump code into the 15-minute cities repo or into `Paper replicas`
 - Update the legacy `.qgz` in place
 - Call a fixture area a measured footprint
 - Hatch look-alikes into the slick without the GLCM drop count in the table

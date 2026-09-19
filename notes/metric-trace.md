@@ -43,4 +43,4 @@ The paper owns detection, discrimination, and validation. Geocoding and radiomet
 - Call fixture km² a measured slick.
 - Mix a community centroid with a JIV coordinate in the same column without `coord_source`.
 - Run SNAP `gpt`.
-- Dump this analysis into the 15-minute-cities Nigeria repo.
+- Dump this analysis into the 15-minute-cities Nigeria repo or into `Paper replicas`. This project sits in `Documents/Portfolio/Projects/`.

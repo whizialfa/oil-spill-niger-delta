@@ -1,6 +1,6 @@
 # Oil-spill footprints — Niger Delta
 
-Original Sentinel-1 analysis for three NOSDRA-named incidents in Bayelsa and Delta States. **This is not a paper replica.** Do not quote fixture kilometres as a spill area.
+Original Sentinel-1 analysis for three NOSDRA-named incidents in Bayelsa and Delta States. **This is not a paper replica.** It lives under `Documents/Portfolio/Projects/`, not `Paper replicas`. Do not quote fixture kilometres as a spill area.
 
 ## Sites
 
