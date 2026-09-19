@@ -1,0 +1,10 @@
+{
+"type": "FeatureCollection",
+"name": "nosdra_points",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "site_id": "biseni_tein", "site_name": "Biseni/Tein", "incident_date": "2025-12-15", "coord_source": "community_centroid_provisional" }, "geometry": { "type": "Point", "coordinates": [ 6.37583, 5.11016 ] } },
+{ "type": "Feature", "properties": { "site_id": "agge_bonga", "site_name": "Agge/Bonga", "incident_date": "2026-01-24", "coord_source": "community_centroid_provisional" }, "geometry": { "type": "Point", "coordinates": [ 5.39485, 5.13023 ] } },
+{ "type": "Feature", "properties": { "site_id": "odidi_kantu", "site_name": "Odidi-Kantu", "incident_date": "2026-02-19", "coord_source": "facility_centroid_provisional" }, "geometry": { "type": "Point", "coordinates": [ 5.456, 5.548 ] } }
+]
+}

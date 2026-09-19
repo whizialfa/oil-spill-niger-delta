@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oil-spill-niger-delta"
+version = "0.1.0"
+description = "Original Sentinel-1 oil-spill footprint mapping for three NOSDRA-named Niger Delta incidents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "scikit-image",
+  "rasterio",
+  "geopandas",
+  "shapely",
+  "pyproj",
+  "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
