@@ -9,7 +9,9 @@ from spill.fixtures import write_synthetic_rtc
 from spill.paths import DATA_RAW, ensure_dirs
 
 
-def rtc_path(site_id: str) -> Path:
+def rtc_path(site_id: str, role: str = "post") -> Path:
+    if role == "pre":
+        return DATA_RAW / f"{site_id}_rtc_pre.tif"
     return DATA_RAW / f"{site_id}_rtc.tif"
 
 
@@ -41,3 +43,11 @@ def resolve_scene(site: dict, allow_synthetic: bool = True) -> tuple[Path, str]:
         )
     write_synthetic_rtc(site, path)
     return path, "synthetic_rtc_fixture"
+
+
+def resolve_pre_scene(site: dict) -> tuple[Path | None, str | None]:
+    """Pre-incident RTC if present. Never writes a fixture."""
+    path = rtc_path(site["id"], "pre")
+    if path.exists():
+        return path, _sidecar_source(path) or "local_rtc"
+    return None, None

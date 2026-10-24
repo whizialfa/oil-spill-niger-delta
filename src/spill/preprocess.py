@@ -79,3 +79,36 @@ def write_geotiff(
     out = np.where(np.isfinite(data), data, nodata).astype(np.float32)
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(out, 1)
+
+
+def align_to(
+    linear: np.ndarray,
+    transform: Affine,
+    crs: str,
+    match_shape: tuple[int, int],
+    match_transform: Affine,
+    match_crs: str,
+) -> np.ndarray:
+    """Resample linear backscatter onto a post-event grid."""
+    from rasterio.warp import Resampling, reproject
+
+    same_grid = (
+        linear.shape == match_shape
+        and crs == match_crs
+        and transform.almost_equals(match_transform)
+    )
+    if same_grid:
+        return linear
+    dest = np.full(match_shape, np.nan, dtype=np.float64)
+    reproject(
+        source=np.asarray(linear, dtype=np.float64),
+        destination=dest,
+        src_transform=transform,
+        src_crs=crs,
+        dst_transform=match_transform,
+        dst_crs=match_crs,
+        resampling=Resampling.bilinear,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+    return dest

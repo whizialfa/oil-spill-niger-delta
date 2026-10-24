@@ -1,0 +1,4 @@
+site_id,site_name,nosdra_id,incident_date,nosdra_bbl,nosdra_jiv_area_km2,habitat,cause,hit,pin_on_water,pin_db,nearest_water_m,distance_to_nearest_slick_m,hit_distance_m,methods_darkened_km2,quote_km2_as_slick,detector_version
+odidi_kantu,Odidi-Kantu,359834,2026-02-20,700,,"swamp, inland water",corrosion,False,False,-2.3404431258848373,41.23105625617661,570.3463480840015,500.0,0.2602,False,v3_prepost
+odimodi_ramos,Odimodi (Trans-Ramos),466367,2026-04-21,2466,0.06991,swamp,equipment,False,False,-7.376748269251479,265.70660511172844,1248.283522288875,500.0,0.0281,False,v3_prepost
+opukushi,Opukushi,466233,2025-12-26,1322,0.0292,swamp,equipment,False,False,-7.692063017196093,184.39088914585776,,500.0,0.0,False,v3_prepost

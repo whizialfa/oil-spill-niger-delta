@@ -8,6 +8,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from spill.paths import DATA_PROCESSED, QGIS, ROOT, ensure_dirs
+from spill.sites import all_sites
 
 LAYERS = (
     {
@@ -35,6 +36,12 @@ LAYERS = (
         "outline": "0,0,0,255",
     },
 )
+
+
+# SAR stretch: water/oil dark, land bright.
+SIGMA0_MIN_DB = -28.0
+SIGMA0_MAX_DB = -4.0
+DELTA_ABS_DB = 5.0
 
 
 def _spatialref() -> str:
@@ -110,6 +117,90 @@ def _marker_renderer(color: str, outline: str) -> str:
     """
 
 
+def _utm31_srs() -> str:
+    return """
+    <srs>
+      <spatialrefsys nativeFormat="Wkt">
+        <wkt>PROJCS["WGS 84 / UTM zone 31N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",3],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1],AUTHORITY["EPSG","32631"]]</wkt>
+        <proj4>+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs</proj4>
+        <srsid>2647</srsid>
+        <srid>32631</srid>
+        <authid>EPSG:32631</authid>
+        <description>WGS 84 / UTM zone 31N</description>
+        <projectionacronym>utm</projectionacronym>
+        <ellipsoidacronym>EPSG:7030</ellipsoidacronym>
+        <geographicflag>false</geographicflag>
+      </spatialrefsys>
+    </srs>
+    """
+
+
+def _minmax_origin() -> str:
+    return """
+      <minMaxOrigin>
+        <limits>MinMax</limits>
+        <extent>WholeRaster</extent>
+        <statAccuracy>Exact</statAccuracy>
+        <cumulativeCutLower>0.02</cumulativeCutLower>
+        <cumulativeCutUpper>0.98</cumulativeCutUpper>
+        <stdDevFactor>0.0</stdDevFactor>
+      </minMaxOrigin>
+    """
+
+
+def _gray_renderer() -> str:
+    return f"""
+    <pipe>
+      <rasterrenderer opacity="1" alphaBand="-1" grayBand="1" type="singlebandgray" nodataColor="">
+        <rasterTransparency/>
+        {_minmax_origin()}
+        <contrastEnhancement>
+          <minValue>{SIGMA0_MIN_DB}</minValue>
+          <maxValue>{SIGMA0_MAX_DB}</maxValue>
+          <algorithm>StretchToMinimumMaximum</algorithm>
+        </contrastEnhancement>
+      </rasterrenderer>
+      <brightnesscontrast brightness="0" contrast="0" gamma="1"/>
+      <huesaturation colorizeOn="0" grayscaleMode="0" saturation="0" invertColors="0"/>
+    </pipe>
+    """
+
+
+def _delta_renderer() -> str:
+    lo, hi = -DELTA_ABS_DB, DELTA_ABS_DB
+    return f"""
+    <pipe>
+      <rasterrenderer opacity="1" band="1" type="singlebandpseudocolor" classificationMin="{lo}" classificationMax="{hi}" nodataColor="">
+        <rasterTransparency/>
+        {_minmax_origin()}
+        <rastershader>
+          <colorrampshader colorRampType="INTERPOLATED" classificationMode="1" clip="0" minimumValue="{lo}" maximumValue="{hi}">
+            <item value="{lo}" label="-5 dB darker" alpha="255" color="#0571b0"/>
+            <item value="0" label="0" alpha="255" color="#f7f7f7"/>
+            <item value="{hi}" label="+5 dB brighter" alpha="255" color="#ca0020"/>
+          </colorrampshader>
+        </rastershader>
+      </rasterrenderer>
+      <brightnesscontrast brightness="0" contrast="0" gamma="1"/>
+    </pipe>
+    """
+
+
+def _raster_layer(layer_id: str, name: str, rel_source: str, kind: str) -> str:
+    renderer = _delta_renderer() if kind == "delta" else _gray_renderer()
+    return f"""
+  <maplayer type="raster" hasScaleBasedVisibilityFlag="0" styleCategories="AllStyleCategories">
+    <id>{layer_id}</id>
+    <datasource>{escape(rel_source)}</datasource>
+    <keywordList><value></value></keywordList>
+    <layername>{escape(name)}</layername>
+    {_utm31_srs()}
+    <provider>gdal</provider>
+    {renderer}
+  </maplayer>
+"""
+
+
 def _maplayer(layer_id: str, spec: dict, rel_source: str) -> str:
     renderer = (
         _marker_renderer(spec["color"], spec["outline"])
@@ -130,25 +221,83 @@ def _maplayer(layer_id: str, spec: dict, rel_source: str) -> str:
 """
 
 
+def _raster_specs() -> list[dict]:
+    specs = []
+    for site in all_sites():
+        sid, name = site["id"], site["name"]
+        specs.extend(
+            [
+                {
+                    "group": f"{name} scenes",
+                    "name": f"{name} post VV (dB)",
+                    "file": f"{sid}_sigma0_db.tif",
+                    "kind": "sigma0",
+                    "checked": True,
+                },
+                {
+                    "group": f"{name} scenes",
+                    "name": f"{name} pre VV (dB)",
+                    "file": f"{sid}_sigma0_db_pre.tif",
+                    "kind": "sigma0",
+                    "checked": False,
+                },
+                {
+                    "group": f"{name} scenes",
+                    "name": f"{name} change (dB)",
+                    "file": f"{sid}_delta_db.tif",
+                    "kind": "delta",
+                    "checked": False,
+                },
+            ]
+        )
+    return specs
+
+
 def build_qgs() -> str:
     layers = []
-    tree = []
     projectlayers = []
+    vector_tree = []
     for spec in LAYERS:
         abs_path = DATA_PROCESSED / spec["file"]
         if not abs_path.exists():
             continue
         layer_id = spec["name"] + "_" + uuid.uuid4().hex[:12]
-        rel = Path("..") / "data" / "processed" / spec["file"]
-        rel_s = rel.as_posix()
-        layers.append((layer_id, spec["name"], rel_s))
-        tree.append(
-            f'    <layer-tree-layer id="{layer_id}" name="{escape(spec["name"])}" '
-            f'source="{escape(rel_s)}" providerKey="ogr" checked="Qt::Checked" expanded="1"/>'
+        rel_s = (Path("..") / "data" / "processed" / spec["file"]).as_posix()
+        layers.append(layer_id)
+        vector_tree.append(
+            f'      <layer-tree-layer id="{layer_id}" name="{escape(spec["name"])}" '
+            f'source="{escape(rel_s)}" providerKey="ogr" checked="Qt::Checked" expanded="0"/>'
         )
         projectlayers.append(_maplayer(layer_id, spec, rel_s))
-    order = "\n".join(f"      <item>{lid}</item>" for lid, _n, _s in reversed(layers))
-    tree_xml = "\n".join(reversed(tree))
+
+    raster_groups: dict[str, list[str]] = {}
+    for spec in _raster_specs():
+        abs_path = DATA_PROCESSED / spec["file"]
+        if not abs_path.exists():
+            continue
+        layer_id = spec["file"].replace(".", "_") + "_" + uuid.uuid4().hex[:8]
+        rel_s = (Path("..") / "data" / "processed" / spec["file"]).as_posix()
+        layers.append(layer_id)
+        checked = "Qt::Checked" if spec["checked"] else "Qt::Unchecked"
+        raster_groups.setdefault(spec["group"], []).append(
+            f'      <layer-tree-layer id="{layer_id}" name="{escape(spec["name"])}" '
+            f'source="{escape(rel_s)}" providerKey="gdal" checked="{checked}" expanded="0"/>'
+        )
+        projectlayers.append(_raster_layer(layer_id, spec["name"], rel_s, spec["kind"]))
+
+    tree_parts = [
+        '    <layer-tree-group name="JIVs and slicks" checked="Qt::Checked" expanded="1">',
+        *vector_tree,
+        "    </layer-tree-group>",
+    ]
+    for group_name, children in raster_groups.items():
+        tree_parts.append(
+            f'    <layer-tree-group name="{escape(group_name)}" checked="Qt::Checked" expanded="1">'
+        )
+        tree_parts.extend(children)
+        tree_parts.append("    </layer-tree-group>")
+
+    order = "\n".join(f"      <item>{lid}</item>" for lid in layers)
     return f"""<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis version="3.28.0-Firenze" projectname="oil-spill-niger-delta">
   <title>Niger Delta oil-spill footprints</title>
@@ -157,8 +306,8 @@ def build_qgs() -> str:
     {_spatialref()}
   </projectCrs>
   <layer-tree-group>
-{tree_xml}
-    <custom-order enabled="1">
+{chr(10).join(tree_parts)}
+    <custom-order enabled="0">
 {order}
     </custom-order>
   </layer-tree-group>
@@ -166,10 +315,10 @@ def build_qgs() -> str:
     <units>degrees</units>
     {_spatialref()}
     <extent>
-      <xmin>4.8</xmin>
-      <ymin>4.7</ymin>
-      <xmax>6.8</xmax>
-      <ymax>5.9</ymax>
+      <xmin>5.25</xmin>
+      <ymin>4.85</ymin>
+      <xmax>5.85</xmax>
+      <ymax>5.55</ymax>
     </extent>
   </mapcanvas>
   <projectlayers>
@@ -198,11 +347,13 @@ def write_qgz(path: Path | None = None) -> Path:
     readme = QGIS / "README.md"
     readme.write_text(
         "# QGIS package\n\n"
-        "Open `oil_spill_niger_delta.qgz`. Layers are relative paths into "
-        "`../data/processed/*.geojson` (sites, footprints, NOSDRA/community points).\n\n"
+        "Open `oil_spill_niger_delta.qgz`.\n\n"
+        "Vectors (`../data/processed/*.geojson`): JIV points, slick footprints, 2.5 km site rings.\n"
+        "Rasters (`../data/processed/*_{sigma0_db,sigma0_db_pre,delta_db}.tif`): Lee VV in dB.\n\n"
+        "- Post / pre: gray stretch −28 to −4 dB (water dark, land bright). Post is on; pre is off.\n"
+        "- Change: blue = darkened after the incident, red = brighter, white = 0. Off by default.\n\n"
         "This is a **new** project built from the Python pipeline. Do not treat it as an "
-        "edit of `bonga_spill_2026.qgz`. That file, if found, is a reference-layer source only.\n"
-        "Bulk RTC GeoTIFFs stay in `data/raw/` and are not packaged here.\n",
+        "edit of `bonga_spill_2026.qgz`.\n",
         encoding="utf-8",
     )
     return path

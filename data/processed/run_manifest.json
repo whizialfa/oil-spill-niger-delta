@@ -1,4 +1,7 @@
 {
   "n_sites": 3,
-  "quoted_table": "spill_metrics.csv"
+  "quoted_table": "headline.csv",
+  "headline_metric": "hit",
+  "n_hits": 0,
+  "do_not_quote": "methods_darkened_km2"
 }

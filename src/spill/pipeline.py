@@ -6,18 +6,27 @@ import argparse
 import json
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import Point
 
-from spill.acquire import resolve_scene
+from spill.acquire import resolve_pre_scene, resolve_scene
 from spill.export_qgis import write_qgz
-from spill.detect import dark_spot_mask, water_mask
+from spill.detect import change_dark_spot_mask, local_dark_spot_mask, pin_diagnostics, water_mask
 from spill.discriminate import filter_lookalikes
 from spill.paths import DATA_PROCESSED, MAPS, ensure_dirs
 from spill.polygonize import mask_to_polygons
-from spill.preprocess import lee_filter, to_db, read_backscatter, write_geotiff
+from spill.preprocess import align_to, lee_filter, to_db, read_backscatter, write_geotiff
 from spill.sites import AREA_CRS, all_sites, get_site
 from spill.validate import validate_point
+
+
+def _v2_area_km2(db, oil, transform, crs) -> float:
+    kept, _ = filter_lookalikes(db, oil)
+    footprints = mask_to_polygons(kept, transform, crs)
+    if footprints.empty:
+        return 0.0
+    return float(footprints["area_km2"].sum())
 
 
 def run_site(site_id: str, allow_synthetic: bool = True) -> dict:
@@ -27,7 +36,28 @@ def run_site(site_id: str, allow_synthetic: bool = True) -> dict:
     filtered = lee_filter(linear, size=5)
     db = to_db(filtered)
     water = water_mask(db)
-    oil = dark_spot_mask(db, water)
+    v2_oil, v2_report = local_dark_spot_mask(db, water, transform, site["lon"], site["lat"], crs)
+    pin = pin_diagnostics(db, water, transform, site["lon"], site["lat"], crs)
+    pre_path, pre_source = resolve_pre_scene(site)
+    pre_db = None
+    pin_db_pre = None
+    pin_delta_db = None
+    if pre_path is not None:
+        pre_linear, pre_transform, pre_crs, _ = read_backscatter(pre_path)
+        pre_linear = align_to(pre_linear, pre_transform, pre_crs, linear.shape, transform, crs)
+        pre_db = to_db(lee_filter(pre_linear, size=5))
+        oil, detect_report = change_dark_spot_mask(
+            db, pre_db, water, transform, site["lon"], site["lat"], crs
+        )
+        detect_report["pre_scene_source"] = pre_source
+        detect_report["v2_slick_area_km2"] = round(_v2_area_km2(db, v2_oil, transform, crs), 6)
+        r, c = pin["pin_row"], pin["pin_col"]
+        if pin["pin_inside_raster"] and np.isfinite(pre_db[r, c]):
+            pin_db_pre = float(pre_db[r, c])
+            if pin["pin_db"] is not None:
+                pin_delta_db = float(pin["pin_db"] - pin_db_pre)
+    else:
+        oil, detect_report = v2_oil, v2_report
     kept, lookalike_report = filter_lookalikes(db, oil)
     footprints = mask_to_polygons(kept, transform, crs)
     footprints["site_id"] = site["id"]
@@ -47,19 +77,33 @@ def run_site(site_id: str, allow_synthetic: bool = True) -> dict:
         "lat": site["lat"],
         "coord_source": site["coord_source"],
         "scene_source": scene_source,
+        "nosdra_id": site.get("nosdra_id"),
+        "nosdra_bbl": site.get("estimated_bbl"),
+        "nosdra_jiv_area_km2": site.get("nosdra_jiv_area_km2"),
+        "habitat": site.get("habitat"),
+        "cause": site.get("cause"),
         "slick_area_km2": round(area, 6),
+        "methods_darkened_km2": round(area, 6),
+        "quote_km2_as_slick": False,
         "n_slicks": int(len(footprints)),
         "nosdra_point_in_footprint": check["nosdra_point_in_footprint"],
         "hit": check["hit"],
         "distance_to_nearest_slick_m": check["distance_to_nearest_slick_m"],
         "hit_distance_m": check["hit_distance_m"],
         "crs_area": AREA_CRS,
+        "pin_db": pin["pin_db"],
+        "pin_db_pre": pin_db_pre,
+        "pin_delta_db": pin_delta_db,
+        "pin_on_water": pin["pin_on_water"],
+        "nearest_water_m": pin["nearest_water_m"],
+        **detect_report,
         **lookalike_report,
     }
     return {
         "row": row,
         "footprints": footprints,
         "db": db,
+        "pre_db": pre_db,
         "water": water,
         "oil": oil,
         "kept": kept,
@@ -81,16 +125,23 @@ def _write_preview(result: dict) -> None:
     extent = plotting_extent(db, result["transform"])
     fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.6), constrained_layout=True)
     axes[0].imshow(db, cmap="gray", extent=extent, origin="upper", vmin=-32, vmax=-6)
-    axes[0].set_title("Lee-filtered σ⁰ (dB)")
-    axes[1].imshow(result["oil"], cmap="gray", extent=extent, origin="upper")
-    axes[1].set_title("Otsu dark spots")
+    axes[0].set_title("Post Lee σ⁰ (dB)")
+    if result.get("pre_db") is not None:
+        delta = db - result["pre_db"]
+        axes[1].imshow(delta, cmap="RdBu", extent=extent, origin="upper", vmin=-6, vmax=6)
+        axes[1].set_title("Post − pre (dB)")
+        version = "v3"
+    else:
+        axes[1].imshow(result["oil"], cmap="gray", extent=extent, origin="upper")
+        axes[1].set_title("Local dark spots (v2)")
+        version = "v2"
     axes[2].imshow(result["kept"], cmap="gray", extent=extent, origin="upper")
     axes[2].set_title("After GLCM filter")
     for ax in axes:
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.tick_params(labelsize=7)
-    fig.suptitle(f"{site['name']} — {result['row']['scene_source']}", fontsize=11)
+    fig.suptitle(f"{site['name']} — {result['row']['scene_source']} — {version}", fontsize=11)
     MAPS.mkdir(parents=True, exist_ok=True)
     fig.savefig(MAPS / f"{site['id']}_detect.png", dpi=120)
     plt.close(fig)
@@ -123,11 +174,45 @@ def run_all(site_ids: list[str] | None = None, allow_synthetic: bool = True) -> 
             result["transform"],
             result["crs"],
         )
+        if result.get("pre_db") is not None:
+            write_geotiff(
+                DATA_PROCESSED / f"{site['id']}_sigma0_db_pre.tif",
+                result["pre_db"],
+                result["transform"],
+                result["crs"],
+            )
+            write_geotiff(
+                DATA_PROCESSED / f"{site['id']}_delta_db.tif",
+                result["db"] - result["pre_db"],
+                result["transform"],
+                result["crs"],
+            )
         _write_preview(result)
 
     metrics = pd.DataFrame(rows)
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(DATA_PROCESSED / "spill_metrics.csv", index=False)
+    headline_cols = [
+        "site_id",
+        "site_name",
+        "nosdra_id",
+        "incident_date",
+        "nosdra_bbl",
+        "nosdra_jiv_area_km2",
+        "habitat",
+        "cause",
+        "hit",
+        "pin_on_water",
+        "pin_db",
+        "nearest_water_m",
+        "distance_to_nearest_slick_m",
+        "hit_distance_m",
+        "methods_darkened_km2",
+        "quote_km2_as_slick",
+        "detector_version",
+    ]
+    present = [c for c in headline_cols if c in metrics.columns]
+    metrics.loc[:, present].to_csv(DATA_PROCESSED / "headline.csv", index=False)
 
     pts = gpd.GeoDataFrame(points, geometry="geometry", crs="EPSG:4326")
     pts.to_file(DATA_PROCESSED / "nosdra_points.geojson", driver="GeoJSON")
@@ -150,7 +235,17 @@ def run_all(site_ids: list[str] | None = None, allow_synthetic: bool = True) -> 
         footprints.to_file(gpkg, layer="footprints", driver="GPKG")
 
     (DATA_PROCESSED / "run_manifest.json").write_text(
-        json.dumps({"n_sites": len(rows), "quoted_table": "spill_metrics.csv"}, indent=2) + "\n",
+        json.dumps(
+            {
+                "n_sites": len(rows),
+                "quoted_table": "headline.csv",
+                "headline_metric": "hit",
+                "n_hits": int(metrics["hit"].sum()) if "hit" in metrics.columns else 0,
+                "do_not_quote": "methods_darkened_km2",
+            },
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     write_qgz()

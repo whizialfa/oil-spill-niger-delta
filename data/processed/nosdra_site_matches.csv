@@ -1,0 +1,4 @@
+id,status,company,incidentnumber,incidentdate,jivdate,latitude,longitude,lga,statesaffected,sitelocationname,estimatedquantity,estimatedspillarea,spillareahabitat,cause,mapped_site
+359834,confirmed,Heritage,HEOSL/2025/328,2026-02-20,2026-02-20,5.4733333,5.4444444,Warri-South-West,DE,"28"" TRANS FORCADOS PIPELINE AT ODIDI - KANTU  COMMUNITY.",700,,"sw,iw",cor,odidi_kantu
+466367,confirmed,RENAISSANCE,028974,2026-04-21,2026-04-23,5.2999944,5.3683667,Burutu,DE,24'' TRANS RAMOS PIPELINE AT ODIMODI,2466,0.06991000,"sw,ss",ome,odimodi_ramos
+466233,confirmed,RENAISSANCE,2025_000312,2025-12-26,2025-12-29,4.9243239,5.7599461,Ekeremor,BY,WELL 11L OPUHUSHI AT OPUKUSHI,1322,0.0292,sw,ome,opukushi
